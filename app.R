@@ -46,7 +46,7 @@ ui <- fluidPage(
       hr(),
       h5("模型設定:"),
       numericInput("rcs_knots", "基線 SAQ 的 RCS 結數 (Number of Knots for RCS):", value = 4, min = 3, max = 7, step = 1),
-      helpText("設為 0 或 1 則使用線性項。建議 3-5 個結。"),
+      helpText("設為 0 或 1 或 2 則使用線性項。建議 3-5 個結。"), # Updated help text slightly
       hr(),
       actionButton("run_analysis", "重新模擬數據並執行分析", icon = icon("play"), class = "btn-primary"),
       hr(),
@@ -56,7 +56,8 @@ ui <- fluidPage(
       p("此應用程式演示 RCT 中存在不遵從性時，如何使用 IV 方法估計治療效應。"),
       p("模擬數據旨在反映類似 ISCHEMIA 試驗的情況。"),
       p("可選擇使用受限三次樣條 (Restricted Cubic Splines, RCS) 來模擬基線 SAQ 的非線性效應。"),
-      p("IV 模型結果現在包含診斷檢定。")
+      p("IV 模型結果現在包含診斷檢定。"),
+      p("OLS 模型結果包含比較線性與 RCS 模型的 ANOVA 檢定，以評估非線性。") # Added explanation
     ),
     mainPanel(
       tabsetPanel(
@@ -159,6 +160,8 @@ ui <- fluidPage(
                  verbatimTextOutput("ols_summary_linear"),
                  h5("RCS 基線 SAQ 模型結果:"),
                  verbatimTextOutput("ols_summary_rcs"),
+                 h5("OLS 中 Baseline SAQ 非線性檢定 (ANOVA: 線性 vs. RCS)"), # New Title for ANOVA test
+                 verbatimTextOutput("ols_nonlinearity_test_output"),          # New Output for ANOVA test
                  hr(),
                  h4("模型估計值比較 (基於線性 SAQ 模型)"),
                  uiOutput("comparison_estimates")
@@ -167,7 +170,6 @@ ui <- fluidPage(
                  h4("完整的模擬數據集"),
                  DT::dataTableOutput("full_data_table")
         ),
-        # --- NEW: References Tab ---
         tabPanel("參考文獻",
                  h4("主要參考文獻"),
                  tags$ul(
@@ -180,10 +182,9 @@ ui <- fluidPage(
                      tags$a(href = "https://www.nejm.org/doi/full/10.1056/NEJMoa1915922",
                             target = "_blank", # Open in new tab
                             "Maron DJ, Hochman JS, Reynolds HR, et al. Initial Invasive or Conservative Strategy for Stable Coronary Disease. N Engl J Med. 2020;382(15):1395-1407. (ISCHEMIA Trial)")
-                   ) 
+                   )
                  )
         )
-        # --- End of New Tab ---
       )
     )
   )
@@ -198,12 +199,13 @@ server <- function(input, output, session) {
     showNotification("正在模擬數據並執行分析...", type = "message", duration = 3)
 
     # --- 1. Simulate Data ---
-    set.seed(as.integer(Sys.time()))
+    set.seed(as.integer(Sys.time()) %% 10000) # Use modulo to keep seed within reasonable integer range
     n <- input$n_sim
     beta_T_true_late <- input$beta_T_sim
     prob_revasc_if_Z1 <- input$compliance_inv
     prob_revasc_if_Z0 <- input$compliance_con
     nk <- input$rcs_knots # Get number of knots for RCS
+    use_rcs <- nk >= 3 # Determine if RCS should be used based on knots
 
     # Z: Random assignment
     assignment_Z <- rbinom(n, 1, 0.5)
@@ -229,14 +231,14 @@ server <- function(input, output, session) {
     beta_regionC <- -1
     error_sd <- 20
     # Add confounding: Higher baseline SAQ also independently leads to better outcome
-    confounding_effect <- 0.05 * (baseline_SAQ - 60)
+    # confounding_effect <- 0.05 * (baseline_SAQ - 60) # Confounding removed for clarity, OLS bias comes from T correlation
 
     outcome_Y <- intercept +
                  beta_T_true_late * treatment_revasc_T +
                  beta_baseline * baseline_SAQ + # Effect of baseline SAQ
                  ifelse(region == "地區B", beta_regionB, 0) +
                  ifelse(region == "地區C", beta_regionC, 0) +
-                 # confounding_effect + # Add confounding related to baseline_SAQ
+                 # confounding_effect + # Removed confounding effect
                  rnorm(n, mean = 0, sd = error_sd)
 
     # Create data frame
@@ -252,7 +254,7 @@ server <- function(input, output, session) {
 
     # Define covariate terms strings
     formula_linear_cov_terms <- "baseline_SAQ + region"
-    formula_rcs_cov_terms <- if (nk >= 3) paste("rcs(baseline_SAQ, nk=", nk, ") + region") else formula_linear_cov_terms
+    formula_rcs_cov_terms <- if (use_rcs) paste("rcs(baseline_SAQ, nk=", nk, ") + region") else formula_linear_cov_terms
 
     # Define formulas (Linear and RCS)
     formula_fs_linear <- as.formula(paste("T ~ Z +", formula_linear_cov_terms))
@@ -260,10 +262,10 @@ server <- function(input, output, session) {
     formula_ols_linear <- as.formula(paste("Y ~ T +", formula_linear_cov_terms))
     formula_iv_linear <- as.formula(paste("Y ~ T +", formula_linear_cov_terms, "| Z +", formula_linear_cov_terms))
 
-    formula_fs_rcs <- if (nk >= 3) as.formula(paste("T ~ Z +", formula_rcs_cov_terms)) else NULL
-    formula_rf_rcs <- if (nk >= 3) as.formula(paste("Y ~ Z +", formula_rcs_cov_terms)) else NULL
-    formula_ols_rcs <- if (nk >= 3) as.formula(paste("Y ~ T +", formula_rcs_cov_terms)) else NULL
-    formula_iv_rcs <- if (nk >= 3) as.formula(paste("Y ~ T +", formula_rcs_cov_terms, "| Z +", formula_rcs_cov_terms)) else NULL
+    formula_fs_rcs <- if (use_rcs) as.formula(paste("T ~ Z +", formula_rcs_cov_terms)) else NULL
+    formula_rf_rcs <- if (use_rcs) as.formula(paste("Y ~ Z +", formula_rcs_cov_terms)) else NULL
+    formula_ols_rcs <- if (use_rcs) as.formula(paste("Y ~ T +", formula_rcs_cov_terms)) else NULL
+    formula_iv_rcs <- if (use_rcs) as.formula(paste("Y ~ T +", formula_rcs_cov_terms, "| Z +", formula_rcs_cov_terms)) else NULL
 
 
     # --- Run Linear Models ---
@@ -280,7 +282,6 @@ server <- function(input, output, session) {
         ivreg(formula_iv_linear, data = ischemia_sim)
       }, error = function(e) { message("IV Linear Model Error: ", e$message); NULL })
 
-    # **MODIFIED**: Use diagnostics = TRUE in summary() for ivreg object
     iv_linear_summary <- if (!is.null(iv_linear_model) && inherits(iv_linear_model, "ivreg")) {
         tryCatch({
             summary(iv_linear_model, diagnostics = TRUE)
@@ -300,7 +301,7 @@ server <- function(input, output, session) {
         iv_linear_robust_summary <- "無法計算穩健標準誤 (Linear)。"
     }
 
-    # --- Run RCS Models (if nk >= 3) ---
+    # --- Run RCS Models (if use_rcs is TRUE) ---
     first_stage_rcs_model <- NULL
     first_stage_rcs_summary <- "未執行 RCS 模型 (結數 < 3)。"
     reduced_form_rcs_model <- NULL
@@ -310,10 +311,11 @@ server <- function(input, output, session) {
     iv_rcs_model <- NULL
     iv_rcs_summary <- "未執行 RCS 模型 (結數 < 3)。"
     iv_rcs_robust_summary <- "未執行 RCS 模型 (結數 < 3)。"
+    nonlinearity_test_ols <- "未執行 RCS 模型 (結數 < 3)，無法進行非線性檢定。" # Initialize nonlinearity test result
 
-    if (!is.null(formula_fs_rcs)) {
+    if (use_rcs) { # Check if RCS should be used
         first_stage_rcs_model <- tryCatch({ lm(formula_fs_rcs, data = ischemia_sim) }, error = function(e){ message("FS RCS Error: ", e$message); NULL})
-        first_stage_rcs_summary <- if (!is.null(first_stage_rcs_model)) summary(first_stage_rcs_model) else "第一階段 (RCS) 模型估計失敗" # Summary for F-stat later
+        first_stage_rcs_summary <- if (!is.null(first_stage_rcs_model)) summary(first_stage_rcs_model) else "第一階段 (RCS) 模型估計失敗"
 
         reduced_form_rcs_model <- tryCatch({ lm(formula_rf_rcs, data = ischemia_sim) }, error = function(e){ message("RF RCS Error: ", e$message); NULL})
         reduced_form_rcs_summary <- if (!is.null(reduced_form_rcs_model)) summary(reduced_form_rcs_model) else "簡化式 (RCS) 模型估計失敗"
@@ -321,11 +323,23 @@ server <- function(input, output, session) {
         ols_rcs_model <- tryCatch({ lm(formula_ols_rcs, data = ischemia_sim) }, error = function(e){ message("OLS RCS Error: ", e$message); NULL})
         ols_rcs_summary <- if (!is.null(ols_rcs_model)) summary(ols_rcs_model) else "OLS (RCS) 模型估計失敗"
 
+        # *** ADDED: Perform ANOVA test for nonlinearity in OLS ***
+        if (!is.null(ols_linear_model) && !is.null(ols_rcs_model)) {
+             nonlinearity_test_ols <- tryCatch({
+                 anova(ols_linear_model, ols_rcs_model) # Compare linear vs RCS OLS models
+             }, error = function(e) {
+                 message("ANOVA comparison error (OLS): ", e$message)
+                 "無法執行 OLS 線性 vs RCS 模型比較。"
+             })
+        } else {
+             nonlinearity_test_ols <- "OLS 線性或 RCS 模型之一未成功擬合，無法比較。"
+        }
+        # *** END OF ADDED PART ***
+
         iv_rcs_model <- tryCatch({
             ivreg(formula_iv_rcs, data = ischemia_sim)
         }, error = function(e) { message("IV RCS Model Error: ", e$message); NULL })
 
-        # **MODIFIED**: Use diagnostics = TRUE in summary() for ivreg object
         iv_rcs_summary <- if (!is.null(iv_rcs_model) && inherits(iv_rcs_model, "ivreg")) {
              tryCatch({
                 summary(iv_rcs_model, diagnostics = TRUE)
@@ -343,7 +357,7 @@ server <- function(input, output, session) {
         } else {
             iv_rcs_robust_summary <- "無法計算穩健標準誤 (RCS)。"
         }
-    }
+    } # End of if(use_rcs)
 
 
     # Store ground truth parameters
@@ -363,14 +377,14 @@ server <- function(input, output, session) {
     list(
       data_full = ischemia_sim,
       # Linear models
-      first_stage_linear_model = first_stage_linear_model, # Pass model object
-      first_stage_linear_summary = first_stage_linear_summary, # Pass summary object
+      first_stage_linear_model = first_stage_linear_model,
+      first_stage_linear_summary = first_stage_linear_summary,
       reduced_form_linear_model = reduced_form_linear_model,
       reduced_form_linear_summary = reduced_form_linear_summary,
       ols_linear_model = ols_linear_model,
       ols_linear_summary = ols_linear_summary,
-      iv_linear_model = iv_linear_model, # Pass model object
-      iv_linear_summary = iv_linear_summary, # Pass summary object (now includes diagnostics)
+      iv_linear_model = iv_linear_model,
+      iv_linear_summary = iv_linear_summary,
       iv_linear_robust_summary = iv_linear_robust_summary,
       # RCS models
       first_stage_rcs_model = first_stage_rcs_model,
@@ -380,11 +394,13 @@ server <- function(input, output, session) {
       ols_rcs_model = ols_rcs_model,
       ols_rcs_summary = ols_rcs_summary,
       iv_rcs_model = iv_rcs_model,
-      iv_rcs_summary = iv_rcs_summary, # Pass summary object (now includes diagnostics)
+      iv_rcs_summary = iv_rcs_summary,
       iv_rcs_robust_summary = iv_rcs_robust_summary,
+      nonlinearity_test_ols = nonlinearity_test_ols, # Include ANOVA test result
       # Params
       ground_truth_params = ground_truth_params,
-      nk = nk
+      nk = nk,
+      use_rcs = use_rcs # Pass whether RCS was used
     )
   }, ignoreNULL = FALSE)
 
@@ -406,19 +422,22 @@ server <- function(input, output, session) {
   })
 
   # Helper function to print summary and F-stat for FIRST STAGE (summary.lm)
-  print_first_stage_summary <- function(summary_obj, model_type = "Linear") {
-      if (is.character(summary_obj)) { # Handle error messages
+  print_first_stage_summary <- function(summary_obj, model_type = "Linear", use_rcs_flag = FALSE, knots = NULL) {
+      if (is.character(summary_obj)) { # Handle error messages or "not run" messages
           cat(paste("第一階段 (", model_type, "): ", summary_obj, "\n", sep=""))
           return()
       }
       # Check if summary object is valid before printing
       req(summary_obj, inherits(summary_obj, "summary.lm"))
       cat(paste("--- 第一階段模型 (", model_type, ") ---\n", sep=""))
+      if (use_rcs_flag && !is.null(knots)) {
+          cat(paste("使用 rcs(baseline_SAQ, nk=", knots, ")\n", sep=""))
+      } else {
+          cat("使用 baseline_SAQ (線性)\n")
+      }
       print(summary_obj)
 
       # Extract and display F-statistic for the instrument Z
-      # We need the F-stat for the exclusion of the instrument(s)
-      # For a single instrument Z, this is equivalent to the square of the t-statistic for Z
       if ("Z" %in% rownames(summary_obj$coefficients)) {
           t_stat_Z <- summary_obj$coefficients["Z", "t value"]
           f_stat_Z <- t_stat_Z^2
@@ -438,70 +457,116 @@ server <- function(input, output, session) {
   output$first_stage_summary_linear <- renderPrint({
       results <- analysis_results()
       req(results$first_stage_linear_summary)
-      print_first_stage_summary(results$first_stage_linear_summary, "Linear")
+      print_first_stage_summary(results$first_stage_linear_summary, "Linear", use_rcs_flag = FALSE)
   })
   output$first_stage_summary_rcs <- renderPrint({
       results <- analysis_results()
-      req(results$first_stage_rcs_summary)
-      print_first_stage_summary(results$first_stage_rcs_summary, "RCS")
+      req(results$first_stage_rcs_summary) # Requires the summary object or the message string
+      print_first_stage_summary(results$first_stage_rcs_summary, "RCS", use_rcs_flag = results$use_rcs, knots = results$nk)
   })
+
+  # Helper function to print model summaries safely
+  print_model_summary <- function(summary_obj, model_name) {
+      cat(paste("--- ", model_name, " ---\n", sep=""))
+      if(is.character(summary_obj)) {
+          cat(summary_obj)
+      } else if (inherits(summary_obj, c("summary.lm", "summary.ivreg", "coeftest"))) {
+          print(summary_obj)
+      } else {
+          cat("無法顯示模型摘要。")
+      }
+      cat("\n") # Add a newline for spacing
+  }
 
   # Reduced Form Output
   output$reduced_form_summary_linear <- renderPrint({
-      results <- analysis_results()
-      req(results$reduced_form_linear_summary)
-      cat("--- 簡化式模型 (Linear) ---\n")
-      if(is.character(results$reduced_form_linear_summary)) {cat(results$reduced_form_linear_summary)} else {print(results$reduced_form_linear_summary)}
+      results <- analysis_results(); req(results$reduced_form_linear_summary)
+      print_model_summary(results$reduced_form_linear_summary, "簡化式模型 (Linear)")
   })
   output$reduced_form_summary_rcs <- renderPrint({
-      results <- analysis_results()
-      req(results$reduced_form_rcs_summary)
-      cat("--- 簡化式模型 (RCS) ---\n")
-      if(is.character(results$reduced_form_rcs_summary)) {cat(results$reduced_form_rcs_summary)} else {print(results$reduced_form_rcs_summary)}
+      results <- analysis_results(); req(results$reduced_form_rcs_summary)
+      print_model_summary(results$reduced_form_rcs_summary, paste("簡化式模型 (RCS, nk=", results$nk, ")", sep=""))
   })
 
   # IV / 2SLS Output (Now includes diagnostics)
   output$iv_summary_linear <- renderPrint({
-    results <- analysis_results()
-    req(results$iv_linear_summary)
-    cat("--- IV/2SLS 模型 (Linear, 含診斷) ---\n")
-    # The summary object itself now contains diagnostics when printed
-    if (is.character(results$iv_linear_summary)) { cat(results$iv_linear_summary) } else { print(results$iv_linear_summary) }
+    results <- analysis_results(); req(results$iv_linear_summary)
+    print_model_summary(results$iv_linear_summary, "IV/2SLS 模型 (Linear, 含診斷)")
   })
   output$iv_summary_rcs <- renderPrint({
-    results <- analysis_results()
-    req(results$iv_rcs_summary)
-    cat("--- IV/2SLS 模型 (RCS, 含診斷) ---\n")
-     if (is.character(results$iv_rcs_summary)) { cat(results$iv_rcs_summary) } else { print(results$iv_rcs_summary) }
+    results <- analysis_results(); req(results$iv_rcs_summary)
+    print_model_summary(results$iv_rcs_summary, paste("IV/2SLS 模型 (RCS, nk=", results$nk, ", 含診斷)", sep=""))
   })
 
   # IV / 2SLS Robust Output (No diagnostics here)
   output$iv_robust_summary_linear <- renderPrint({
-     results <- analysis_results()
-     req(results$iv_linear_robust_summary)
-     cat("--- IV/2SLS 模型 (Linear, 穩健 SE) ---\n")
-     if (is.character(results$iv_linear_robust_summary)) { cat(results$iv_linear_robust_summary) } else { print(results$iv_linear_robust_summary) }
+     results <- analysis_results(); req(results$iv_linear_robust_summary)
+     print_model_summary(results$iv_linear_robust_summary, "IV/2SLS 模型 (Linear, 穩健 SE)")
   })
    output$iv_robust_summary_rcs <- renderPrint({
-     results <- analysis_results()
-     req(results$iv_rcs_robust_summary)
-     cat("--- IV/2SLS 模型 (RCS, 穩健 SE) ---\n")
-     if (is.character(results$iv_rcs_robust_summary)) { cat(results$iv_rcs_robust_summary) } else { print(results$iv_rcs_robust_summary) }
+     results <- analysis_results(); req(results$iv_rcs_robust_summary)
+     print_model_summary(results$iv_rcs_robust_summary, paste("IV/2SLS 模型 (RCS, nk=", results$nk, ", 穩健 SE)", sep=""))
   })
 
   # OLS Output
   output$ols_summary_linear <- renderPrint({
-     results <- analysis_results()
-     req(results$ols_linear_summary)
-     cat("--- OLS 模型 (Linear) ---\n")
-     if(is.character(results$ols_linear_summary)) {cat(results$ols_linear_summary)} else {print(results$ols_linear_summary)}
+     results <- analysis_results(); req(results$ols_linear_summary)
+     print_model_summary(results$ols_linear_summary, "OLS 模型 (Linear)")
   })
   output$ols_summary_rcs <- renderPrint({
-     results <- analysis_results()
-     req(results$ols_rcs_summary)
-     cat("--- OLS 模型 (RCS) ---\n")
-     if(is.character(results$ols_rcs_summary)) {cat(results$ols_rcs_summary)} else {print(results$ols_rcs_summary)}
+     results <- analysis_results(); req(results$ols_rcs_summary)
+     print_model_summary(results$ols_rcs_summary, paste("OLS 模型 (RCS, nk=", results$nk, ")", sep=""))
   })
+
+  # *** ADDED: Render ANOVA test output for OLS nonlinearity ***
+  output$ols_nonlinearity_test_output <- renderPrint({
+      results <- analysis_results()
+      req(results$nonlinearity_test_ols) # Requires the test result or message
+
+      # Check if the result is the message string indicating RCS wasn't run
+      if(is.character(results$nonlinearity_test_ols) && grepl("未執行 RCS 模型", results$nonlinearity_test_ols)) {
+          cat(results$nonlinearity_test_ols)
+          return() # Stop here if RCS wasn't run
+      }
+
+      # If we got here, RCS was run, proceed to display test info
+      cat("--- OLS: Baseline SAQ 非線性檢定 ---\n")
+      if(results$use_rcs) { # Ensure nk was >= 3
+        cat("比較模型：\n")
+        cat(paste("  模型 1 (線性): Y ~ baseline_SAQ + region + T\n"))
+        cat(paste("  模型 2 (RCS):   Y ~ rcs(baseline_SAQ, nk=", results$nk, ") + region + T\n", sep=""))
+        cat("虛無假設 (H0): 線性模型已足夠 (非線性項係數為 0)\n")
+        cat("對立假設 (H1): 非線性項顯著改善模型\n\n")
+
+        # Print the anova result (which could be the table or an error message)
+        print(results$nonlinearity_test_ols)
+
+        # Add interpretation hint if the anova object is valid
+        if(inherits(results$nonlinearity_test_ols, "anova")) {
+            # Extract P-value (Pr(>F)) from the second row if it exists
+            p_value <- tryCatch(results$nonlinearity_test_ols$"Pr(>F)"[2], error = function(e) NA)
+            if(!is.na(p_value)) {
+                cat("\n---\n")
+                cat(paste("非線性項的 P 值 (來自 ANOVA F 檢定):", format.pval(p_value, digits = 3, eps = 0.001), "\n"))
+                if(p_value < 0.05) {
+                    cat("結論：有顯著證據表明 Baseline SAQ 與結果 Y 之間存在非線性關係 (在 OLS 模型中，p < 0.05)。\n")
+                } else {
+                    cat("結論：沒有足夠證據拒絕線性關係假設 (在 OLS 模型中，p >= 0.05)。\n")
+                }
+            } else {
+                cat("\n---\n無法從 ANOVA 結果中提取 P 值。\n")
+            }
+        } else if (is.character(results$nonlinearity_test_ols)) {
+            # If it's a character string, it's likely an error message from tryCatch
+             cat("\n---\n")
+             cat(paste("ANOVA 比較時發生錯誤:", results$nonlinearity_test_ols, "\n"))
+        }
+      } else {
+           cat("未執行 RCS 模型 (結數 < 3)，無法進行非線性檢定。\n")
+      }
+  })
+  # *** END OF ADDED RENDER BLOCK ***
+
 
   # --- Render Formulas ---
   output$ground_truth_formula_display <- renderUI({
@@ -543,8 +608,8 @@ server <- function(input, output, session) {
       cat(paste("地區 B 效應 (β_regionB):", params$beta_regionB, "\n"))
       cat(paste("地區 C 效應 (β_regionC):", params$beta_regionC, "\n"))
       cat(paste("誤差標準差 (σ_ε):", params$error_sd, "\n"))
-      cat(paste("P(T=1 | Z=1) (平均):", params$prob_revasc_if_Z1, "\n")) # Note: This is the input slider value, actual average might differ slightly due to adjustment
-      cat(paste("P(T=1 | Z=0) (平均):", params$prob_revasc_if_Z0, "\n")) # Note: This is the input slider value, actual average might differ slightly due to adjustment
+      cat(paste("P(T=1 | Z=1) (輸入設定):", params$prob_revasc_if_Z1, "\n")) # Note: This is the input slider value
+      cat(paste("P(T=1 | Z=0) (輸入設定):", params$prob_revasc_if_Z0, "\n")) # Note: This is the input slider value
       cat(paste("遵從者比例估計 (基於輸入):", round(prop_compliers, 3), "\n"))
   })
 
@@ -586,7 +651,7 @@ server <- function(input, output, session) {
               tags$li(paste0("ITT 估計值 (", round(itt_coef, 3), ") 代表治療『策略』的平均效果，其大小受遵從者比例影響。理論上，ITT ≈ LATE × (P(T=1|Z=1) - P(T=1|Z=0))。"))
           ),
           hr(),
-          p("注意：以上比較基於假設基線 SAQ 效應為線性的模型。您可以查看包含 RCS 的模型結果，以評估非線性假設是否影響估計。同時，請檢查 IV 模型的診斷檢定 (如弱工具變數檢定)。")
+          p("注意：以上比較基於假設基線 SAQ 效應為線性的模型。您可以查看包含 RCS 的模型結果，以及新增的 OLS 非線性檢定結果，以評估非線性假設是否影響估計。同時，請檢查 IV 模型的診斷檢定 (如弱工具變數檢定)。") # Updated note
       )
   })
 
