@@ -6,14 +6,6 @@
 # DT: Provides an interface to the DataTables library for interactive tables.
 # rms: Provides functions for regression modeling strategies, including rcs() for restricted cubic splines.
 
-# --- References ---
-# General IV Concepts in RCTs:
-# Hernán MA, Robins JM. Instruments for Causal Inference: An Epidemiologist’s Dream? Epidemiology. 2006;17(4):360-372.
-# Baiocchi M, Cheng J, Small DS. Instrumental Variable Methods for Causal Inference. Stat Med. 2014;33(13):2297-2340.
-# Weak Instrument / F-statistic Rule of Thumb:
-# Staiger D, Stock JH. Instrumental Variables Regression with Weak Instruments. Econometrica. 1997;65(3):557-586.
-# Stock JH, Yogo M. Testing for Weak Instruments in Linear IV Regression. In: Andrews DWK, Stock JH, eds. Identification and Inference for Econometric Models: Essays in Honor of Thomas Rothenberg. Cambridge University Press; 2005:80-108.
-
 # Specific References Provided by User:
 # 1. Brookhart MA, Rassen JA, Schneeweiss S. Instrumental Variables in Randomized Trials. N Engl J Med. 2010;363(25):e39.
 #    Link: https://www.dropbox.com/scl/fi/lsnmm2ge2q1ircugjgqsf/nejm_iv.pdf?rlkey=8xbouk44mnryh2o98fdjbvlfx&raw=1
@@ -35,138 +27,175 @@ library(lmtest)
 library(DT)
 library(rms) # Load rms for rcs()
 
-# --- UI Definition (使用者介面) ---
-# (UI remains the same as the previous version v3)
+# --- UI Definition (ä½¿ç¨èä»é¢) ---
 ui <- fluidPage(
   tags$head(
     tags$meta(charset = "UTF-8"),
     tags$html(lang = "zh-Hant-TW"),
     tags$script(src = "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML")
   ),
-  titlePanel("工具變數分析 Shiny 應用程式 (含 RCS 選項)"),
+  titlePanel("æè¨±å¤ééµå¾èä¹é¨æ©åéå°ç§è¨åºè©¦é© RCT çå·¥å·è®æ¸åæ"),
   sidebarLayout(
     sidebarPanel(
-      h4("控制面板"),
-      h5("模擬參數設定:"),
-      numericInput("n_sim", "樣本數 (Sample Size, n):", value = 5000, min = 100, max = 20000, step = 100),
-      numericInput("beta_T_sim", "真實治療效應 (LATE/CACE):", value = 5.5, min = -10, max = 20, step = 0.5),
-      sliderInput("compliance_inv", "遵從率 - 介入組 (P(T=1|Z=1)):", min = 0, max = 1, value = 0.80, step = 0.01),
-      sliderInput("compliance_con", "非遵從率 - 對照組 (P(T=1|Z=0)):", min = 0, max = 1, value = 0.12, step = 0.01),
+      h4("æ§å¶é¢æ¿"),
+      h5("æ¨¡æ¬åæ¸è¨­å®:"),
+      numericInput("n_sim", "æ¨£æ¬æ¸ (Sample Size, n):", value = 5000, min = 100, max = 20000, step = 100),
+      numericInput("beta_T_sim", "çå¯¦æ²»çææ (LATE/CACE):", value = 5.5, min = -10, max = 20, step = 0.5),
+      sliderInput("compliance_inv", "éµå¾ç - ä»å¥çµ (P(T=1|Z=1)):", min = 0, max = 1, value = 0.80, step = 0.01),
+      sliderInput("compliance_con", "ééµå¾ç - å°ç§çµ (P(T=1|Z=0)):", min = 0, max = 1, value = 0.12, step = 0.01),
       hr(),
-      h5("模型設定:"),
-      numericInput("rcs_knots", "基線 SAQ 的 RCS 結數 (Number of Knots for RCS):", value = 4, min = 3, max = 7, step = 1),
-      helpText("設為 0 或 1 則使用線性項。建議 3-5 個結。"),
+      h5("æ¨¡åè¨­å®:"),
+      numericInput("rcs_knots", "åºç· SAQ ç RCS çµæ¸ (Number of Knots for RCS):", value = 4, min = 3, max = 7, step = 1),
+      helpText("è¨­çº 0 æ 1 åä½¿ç¨ç·æ§é ãå»ºè­° 3-5 åçµã"),
       hr(),
-      actionButton("run_analysis", "重新模擬數據並執行分析", icon = icon("play"), class = "btn-primary"),
+      actionButton("run_analysis", "éæ°æ¨¡æ¬æ¸æä¸¦å·è¡åæ", icon = icon("play"), class = "btn-primary"),
       hr(),
-      downloadButton("download_data", "下載模擬數據 (.csv)", class = "btn-success"),
+      downloadButton("download_data", "ä¸è¼æ¨¡æ¬æ¸æ (.csv)", class = "btn-success"),
       hr(),
-      h5("說明:"),
-      p("此應用程式演示 RCT 中存在不遵從性時，如何使用 IV 方法估計治療效應。"),
-      p("模擬數據旨在反映類似 ISCHEMIA 試驗的情況。"),
-      p("可選擇使用受限三次樣條 (Restricted Cubic Splines, RCS) 來模擬基線 SAQ 的非線性效應。")
+      h5("èªªæ:"),
+      p("æ­¤æç¨ç¨å¼æ¼ç¤º RCT ä¸­å­å¨ä¸éµå¾æ§æï¼å¦ä½ä½¿ç¨ IV æ¹æ³ä¼°è¨æ²»çææã"),
+      p("æ¨¡æ¬æ¸ææ¨å¨åæ é¡ä¼¼ ISCHEMIA è©¦é©çææ³ã"),
+      p("å¯é¸æä½¿ç¨åéä¸æ¬¡æ¨£æ¢ (Restricted Cubic Splines, RCS) ä¾æ¨¡æ¬åºç· SAQ çéç·æ§ææã"),
+      p("IV æ¨¡åçµæç¾å¨åå«è¨ºæ·æª¢å®ã")
     ),
     mainPanel(
       tabsetPanel(
         id = "results_tabs",
-        tabPanel("分析說明與模擬設定",
-                 h3("工具變數 (IV) 與隨機試驗"),
-                 p("當存在不遵從性時，直接比較實際接受治療 (T=1) 和未接受治療 (T=0) 的患者（即『依治療分析』, as-treated analysis using OLS）可能會因為『選擇偏誤』而產生誤導..."),
-                 p("工具變數 (IV) 分析利用最初的「隨機分派」(Z) 作為「工具」，來估計「實際接受治療」(T) 對「結果」(Y) 的因果效應 (LATE/CACE)..."),
+        tabPanel("åæèªªæèæ¨¡æ¬è¨­å®",
+                 h3("å·¥å·è®æ¸ (IV) èé¨æ©è©¦é©"),
+                 p("ç¶å­å¨ä¸éµå¾æ§æï¼ç´æ¥æ¯è¼å¯¦éæ¥åæ²»ç (T=1) åæªæ¥åæ²»ç (T=0) çæ£èï¼å³ãä¾æ²»çåæã, OLSï¼å¯è½æå çºãé¸æåèª¤ãèç¢çèª¤å°ï¼å çºæ±ºå®æ¥åæ²»ççå ç´ å¯è½ä¹èçµæç¸éã"),
+                 p("å·¥å·è®æ¸ (IV) åæå©ç¨æåçãé¨æ©åæ´¾ã(Z) ä½çºãå·¥å·ãï¼ä¾ä¼°è¨ãå¯¦éæ¥åæ²»çã(T) å°ãçµæã(Y) çå æææãå¨å­å¨ä¸éµå¾æ§ç RCT ä¸­ï¼ééå¸¸ä¼°è¨çæ¯ãéµå¾èçå¹³åå æææã(Complier Average Causal Effect, CACE)ï¼ä¹ç¨±çºãå±é¨å¹³åæ²»çææã(Local Average Treatment Effect, LATE)ã"),
                  hr(),
-                 h4("工具變數分析的核心假設:"),
+                 h4("å·¥å·è®æ¸åæçæ ¸å¿åè¨­:"),
                  tags$ul(
-                   tags$li("1. 關聯性 (Relevance): Z 與 T 相關。"),
-                   tags$li("2. 獨立性/隨機性 (Independence/Randomization): Z 與未觀察混淆因素無關。"),
-                   tags$li("3. 排除限制 (Exclusion Restriction): Z 僅通過 T 影響 Y。"),
-                   tags$li("4. 單調性 (Monotonicity): 無反抗者。")
+                   tags$li("1. éè¯æ§: å·¥å·è®æ¸ Z èå§çè®æ¸ï¼è·èª¤å·®é ç¸éçå³å´è®é ï¼T ç¸é (å¨æ§å¶å±è®æ¸å¾)ãéæ¯å¯ä»¥æª¢é©ç (è¦ãéµå¾æ§æª¢æ¥ãåé )ã"),
+                   tags$li("2. ç¨ç«æ§/é¨æ©æ§: å·¥å·è®æ¸ Z èçµæ Y çèª¤å·®é ç¡éï¼äº¦å³ Z æ¯å¤çæ§è®æ¸ãå¨ RCT ä¸­ï¼é¨æ©åæ´¾éå¸¸è½æ»¿è¶³æ­¤åè¨­ã"),
+                   tags$li("3. æé¤éå¶ï¼Z âXâYï¼: å·¥å·è®æ¸ Z åªè½ééå§çè®æ¸ T å½±é¿çµæ Yï¼æ²æç´æ¥ç¶ç±æå¶ä»éæ¥è·¯å¾ (å¨æ§å¶å±è®æ¸å¾) å½±é¿ Yãéååè¨­ç¡æ³ç´æ¥æª¢é©ï¼ä½å¨ RCT ä¸­éå¸¸è¢«èªçºæ¯åçç (äº¦å³åæ´¾æ¬èº«ä¸å½±é¿çµæ)ã"),
+                   tags$li("4. å®èª¿æ§ï¼æ²æãåæèãï¼å³æ²æäººæå çºè¢«åæ´¾å°ä»å¥çµåèä¸æ¥åæ²»çï¼åæå¦æè¢«åæ´¾å°å°ç§çµåèæ¥åæ²»çãéæå³è Z å° T çå½±é¿æ¹åå°ææäººé½æ¯ä¸è´ç (æèçºé¶)ã")
                  ),
                  hr(),
-                 h4("在此模擬中使用的變數："),
+                 h4("å¨æ­¤æ¨¡æ¬ä¸­ä½¿ç¨çè®æ¸ï¼"),
                  tags$ul(
-                   tags$li("Y: 結果變數 (模擬一年後的 SAQ 生活品質分數, 0-100, 高分=好)"),
-                   tags$li("T: 內生變數 (實際接受的血管重建治療，1=是, 0=否)"),
-                   tags$li("Z: 工具變數 (隨機分派的治療策略，1=介入性, 0=保守性)"),
-                   tags$li("X: 控制變數/共變數 (模擬基線 SAQ 分數 `baseline_SAQ`、地區 `region`)")
+                   tags$li("Y: çµæè®æ¸ (ä¸å¹´å¾ç SAQ çæ´»åè³ªåæ¸, 0-100, é«å=å¥½)"),
+                   tags$li("T: å§çè®æ¸ (å¯¦éæ¥åçè¡ç®¡éå»ºæ²»çï¼1=æ¯, 0=å¦)"),
+                   tags$li("Z: å·¥å·è®æ¸ (é¨æ©åæ´¾çæ²»çç­ç¥ï¼1=ä»å¥æ§, 0=ä¿å®æ§)"),
+                   tags$li("X: æ§å¶è®æ¸/å±è®æ¸ (æ¨¡æ¬åºç· SAQ åæ¸ `baseline_SAQ`ãå°å `region`)")
                  ),
-                 h4("受限三次樣條 (Restricted Cubic Splines, RCS)"),
-                 p("您可以選擇使用 RCS 來對基線 SAQ (`baseline_SAQ`) 與結果 Y 或治療 T 之間的關係進行建模。RCS 是一種靈活的方式，可以在不過度擬合數據的情況下捕捉潛在的非線性關係。結 (knots) 的數量決定了曲線的靈活性（通常選擇 3 到 5 個結）。"),
+                 h4("åéä¸æ¬¡æ¨£æ¢ (Restricted Cubic Splines, RCS)"),
+                 p("æ¨å¯ä»¥é¸æä½¿ç¨ RCS ä¾å°åºç· SAQ (`baseline_SAQ`) èçµæ Y ææ²»ç T ä¹éçéä¿é²è¡å»ºæ¨¡ãRCS æ¯ä¸ç¨®éæ´»çæ¹å¼ï¼å¯ä»¥å¨ä¸éåº¦æ¬åæ¸æçææ³ä¸æææ½å¨çéç·æ§éä¿ãçµ (knots) çæ¸éæ±ºå®äºæ²ç·çéæ´»æ§ï¼éå¸¸é¸æ 3 å° 5 åçµï¼ã"),
                  hr(),
-                 h4("數據生成模型 (Ground Truth Formula for Outcome Y)"),
+                 h4("æ¸æçææ¨¡å (Ground Truth Formula for Outcome Y)"),
                  uiOutput("ground_truth_formula_display"),
-                 h5("目前模擬使用的參數值:"),
+                 h5("ç®åæ¨¡æ¬ä½¿ç¨çåæ¸å¼:"),
                  verbatimTextOutput("ground_truth_params_display"),
                  hr(),
-                 h4("主要分析方法與公式："),
+                 h4("ä¸»è¦åææ¹æ³èå¬å¼ï¼"),
                  tags$ol(
-                   tags$li("第一階段 (First Stage): T ~ Z + Covariates", uiOutput("formula_first_stage")),
-                   tags$li("簡化式 (Reduced Form) / ITT: Y ~ Z + Covariates", uiOutput("formula_reduced_form")),
-                   tags$li("兩階段最小平方法 (2SLS / IV): Y ~ T + Covariates | Z + Covariates", uiOutput("formula_2sls")),
-                   tags$li("普通最小平方法 (OLS) / As-Treated: Y ~ T + Covariates", uiOutput("formula_ols"))
+                   tags$li("ç¬¬ä¸éæ®µ (First Stage): T ~ Z + Covariates", uiOutput("formula_first_stage")),
+                   tags$li("ç°¡åå¼ (Reduced Form) / ITT: Y ~ Z + Covariates", uiOutput("formula_reduced_form")),
+                   tags$li("å©éæ®µæå°å¹³æ¹æ³ (2SLS / IV): Y ~ T + Covariates | Z + Covariates", uiOutput("formula_2sls")),
+                   tags$li("æ®éæå°å¹³æ¹æ³ (OLS) / As-Treated: Y ~ T + Covariates", uiOutput("formula_ols"))
                  )
         ),
-        tabPanel("數據預覽與遵從性檢查",
-                 h4("模擬數據預覽 (前 6 筆)"),
+        tabPanel("æ¸æé è¦½èéµå¾æ§æª¢æ¥",
+                 h4("æ¨¡æ¬æ¸æé è¦½ (å 6 ç­)"),
                  tableOutput("data_head"),
                  hr(),
-                 h4("第一階段迴歸 (遵從性檢查：Z 對 T 的影響)"),
-                 h5("工具變數強度 (Instrument Strength)"),
-                 p("工具變數的『關聯性』假設要求 Z 必須與 T 相關。我們通常使用第一階段迴歸的 F 統計量來評估工具變數的強度。"),
+                 h4("ç¬¬ä¸éæ®µè¿´æ­¸ (éµå¾æ§æª¢æ¥ï¼Z å° T çå½±é¿)"),
+                 h5("å·¥å·è®æ¸å¼·åº¦èå¼±å·¥å·è®æ¸åé¡"),
+                 p("å·¥å·è®æ¸çãéè¯æ§ãåè¨­è¦æ± Z å¿é è T ç¸éãæåéå¸¸ä½¿ç¨ç¬¬ä¸éæ®µè¿´æ­¸ä¸­å·¥å·è®æ¸ Z ç F çµ±è¨éä¾è©ä¼°å·¥å·è®æ¸çå¼·åº¦ã"),
                  tags$ul(
-                    tags$li("常用的經驗法則是 F 統計量 > 10 (Staiger & Stock, 1997; Stock & Yogo, 2005)。"),
-                    tags$li("若 F < 10，可能存在『弱工具變數』問題。"),
-                    tags$li("弱工具變數會導致 2SLS 估計量產生偏誤（偏向 OLS）且標準誤不可靠。"),
-                    tags$li("檢查第一階段 F 統計量是 IV 分析的重要步驟。")
+                    tags$li("è¨ç®æ¹å¼ï¼æª¢é©ç¬¬ä¸éæ®µè¿´æ­¸ä¸­ææå·¥å·è®æ¸ï¼å¨æ­¤ä¾ä¸­åªæ Zï¼ä¿æ¸æ¯å¦è¯åçºé¶ç F æª¢å®çµ±è¨éã"),
+                    tags$li("ç¶é©æ³åï¼å¸¸ç¨çå¤æ·æ¨æºæ¯ F çµ±è¨é > 10ãéè¡¨ç¤ºå·¥å·è®æ¸èå§çè®æ¸æè¶³å¤ å¼·çéè¯ã"),
+                    tags$li("å¼±å·¥å·è®æ¸ï¼è¥ F < 10ï¼åèªçºå·¥å·è®æ¸ Z è T çéè¯æ§è¼å¼±ï¼ç¨±çºãå¼±å·¥å·è®æ¸ãã"),
+                    tags$li("å¼±å·¥å·è®æ¸çå¾æï¼"),
+                    tags$ul(
+                        tags$li("2SLS ä¼°è¨éæç¢çåèª¤ (Bias)ï¼ä¸åèª¤æ¹åææå OLS ä¼°è¨éã"),
+                        tags$li("2SLS ä¼°è¨éçæ¨æºèª¤æè®å¾ä¸å¯é ï¼å°è´ä¿¡è³´åéååèªªæª¢å® (å¦ t æª¢å®) ççµæä¸æºç¢ºã"),
+                        tags$li("å³ä½¿æ¨£æ¬æ¸å¾å¤§ï¼å¼±å·¥å·è®æ¸åé¡ä»ç¶å¯è½å­å¨ã")
+                    ),
+                    tags$li("å¦ä½èçå¼±å·¥å·è®æ¸ï¼"),
+                    tags$ul(
+                        tags$li("å°æ¾æ´å¼·çå·¥å·è®æ¸ (å¦æå¯è½)ã"),
+                        tags$li("ä½¿ç¨å°å¼±å·¥å·è®æ¸è¼ä¸ææçä¼°è¨æ¹æ³ï¼ä¾å¦ãæéè³è¨æå¤§æ¦ä¼¼æ³ãLIML)ï¼ä½ AER å¥ä»¶ä¸­ç `ivreg` ä¸ç´æ¥æä¾ LIMLã"),
+                        tags$li("ä½¿ç¨å°å¼±å·¥å·è®æ¸ç©©å¥çæ¨è«æ¹æ³ï¼ä¾å¦ Anderson-Rubin æª¢å®ã"),
+                        tags$li("æ¿èªå¼±å·¥å·è®æ¸çå­å¨ï¼ä¸¦å¨è§£éçµæææ´å è¬¹æã")
+                    ),
+                    tags$li("éè¦æ§ï¼æª¢æ¥ç¬¬ä¸éæ®µ F çµ±è¨éæ¯ IV åæä¸­éå¸¸éè¦çä¸æ­¥ã`ivreg` ç `summary` å½æ¸å ä¸ `diagnostics = TRUE` æèªåå ±åæ­¤ F çµ±è¨éã")
                  ),
-                 h5("線性基線 SAQ 模型結果:"),
+                 h5("ç·æ§åºç· SAQ æ¨¡åçµæ:"),
                  verbatimTextOutput("first_stage_summary_linear"),
-                 h5("RCS 基線 SAQ 模型結果:"),
+                 h5("RCS åºç· SAQ æ¨¡åçµæ:"),
                  verbatimTextOutput("first_stage_summary_rcs")
         ),
-        tabPanel("模型結果比較",
-                 h4("簡化式迴歸 (ITT 效應：Z 對 Y 的影響)"),
-                 h5("線性基線 SAQ 模型結果:"),
+        tabPanel("æ¨¡åçµææ¯è¼",
+                 h4("ç°¡åå¼è¿´æ­¸ (ITT ææï¼Z å° Y çå½±é¿)"),
+                 h5("ç·æ§åºç· SAQ æ¨¡åçµæ:"),
                  verbatimTextOutput("reduced_form_summary_linear"),
-                 h5("RCS 基線 SAQ 模型結果:"),
+                 h5("RCS åºç· SAQ æ¨¡åçµæ:"),
                  verbatimTextOutput("reduced_form_summary_rcs"),
                  hr(),
-                 h4("工具變數迴歸 (2SLS 結果：T 對 Y 的 LATE/CACE)"),
-                 h5("線性基線 SAQ 模型結果:"),
+                 h4("å·¥å·è®æ¸è¿´æ­¸ (2SLS çµæï¼T å° Y ç LATE/CACE)"),
+                 p("æ³¨æï¼ä»¥ä¸çµæåå«ä½¿ç¨ `summary(..., diagnostics = TRUE)` ç¢ççè¨ºæ·æª¢å®ã"),
+                 tags$ul(
+                    tags$li(strong("å¼±å·¥å·è®æ¸æª¢å®:"), "å ±åç¬¬ä¸éæ®µç F çµ±è¨é (åãéµå¾æ§æª¢æ¥ãåé )ãF > 10 éå¸¸è¡¨ç¤ºå·¥å·è®æ¸å¼·åº¦è¶³å¤ ã"),
+                    tags$li(strong("å§çæ§æª¢å® (Wu-Hausman Test):"), "æª¢å®å§çè®æ¸ (T) æ¯å¦ççå·æå§çæ§ (å³ OLS æ¯å¦æåèª¤)ãèç¡åè¨­ (H0) æ¯ T çºå¤çãè¥ p å¼é¡¯è (ä¾å¦ < 0.05)ï¼åæçµ H0ï¼æ¯æ T å·æå§çæ§ï¼ä½¿ç¨ IV æ¯é©ç¶çã"),
+                    tags$li(strong("éåº¦è­å¥æª¢å® (Sargan Test of Overidentifying Restrictions):"), "åå¨å·¥å·è®æ¸æ¸é > å§çè®æ¸æ¸éæé©ç¨ (å¨æ­¤æ¨¡æ¬ä¸­ä¸é©ç¨ï¼å çºåªæä¸åå·¥å· Z åä¸åå§çè®æ¸ T)ãæª¢å®ãé¡å¤çãå·¥å·è®æ¸æ¯å¦ææ (å³æ¯å¦æ»¿è¶³æé¤éå¶ä¸èèª¤å·®é ç¡é)ãèç¡åè¨­ (H0) æ¯ææå·¥å·è®æ¸é½ææãè¥ p å¼ä¸é¡¯èï¼åç¡æ³æçµ H0ï¼æ¯æå·¥å·è®æ¸çæææ§ã")
+                 ),
+                 h5("ç·æ§åºç· SAQ æ¨¡åçµæ (å«è¨ºæ·):"),
                  verbatimTextOutput("iv_summary_linear"),
-                 h5("RCS 基線 SAQ 模型結果:"),
+                 h5("RCS åºç· SAQ æ¨¡åçµæ (å«è¨ºæ·):"),
                  verbatimTextOutput("iv_summary_rcs"),
                  hr(),
-                 h4("工具變數迴歸 (含穩健標準誤)"),
-                 h5("線性基線 SAQ 模型結果 (穩健 SE):"),
+                 h4("å·¥å·è®æ¸è¿´æ­¸ (å«ç©©å¥æ¨æºèª¤)"),
+                 p("æ³¨æï¼ä½¿ç¨ `coeftest` æ­é `vcovHC` è¨ç®ç©©å¥æ¨æºèª¤æï¼ä¸æé¡¯ç¤º `summary` çè¨ºæ·æª¢å®ãè¨ºæ·æª¢å®æåèä¸é¢çæ¨æº IV çµæã"),
+                 h5("ç·æ§åºç· SAQ æ¨¡åçµæ (ç©©å¥ SE):"),
                  verbatimTextOutput("iv_robust_summary_linear"),
-                 h5("RCS 基線 SAQ 模型結果 (穩健 SE):"),
+                 h5("RCS åºç· SAQ æ¨¡åçµæ (ç©©å¥ SE):"),
                  verbatimTextOutput("iv_robust_summary_rcs"),
                  hr(),
-                 h4("普通最小平方法迴歸 (OLS / As-Treated)"),
-                 h5("線性基線 SAQ 模型結果:"),
+                 h4("æ®éæå°å¹³æ¹æ³è¿´æ­¸ (OLS / As-Treated)"),
+                 h5("ç·æ§åºç· SAQ æ¨¡åçµæ:"),
                  verbatimTextOutput("ols_summary_linear"),
-                 h5("RCS 基線 SAQ 模型結果:"),
+                 h5("RCS åºç· SAQ æ¨¡åçµæ:"),
                  verbatimTextOutput("ols_summary_rcs"),
                  hr(),
-                 h4("模型估計值比較 (基於線性 SAQ 模型)"),
+                 h4("æ¨¡åä¼°è¨å¼æ¯è¼ (åºæ¼ç·æ§ SAQ æ¨¡å)"),
                  uiOutput("comparison_estimates")
         ),
-        tabPanel("完整模擬數據",
-                 h4("完整的模擬數據集"),
+        tabPanel("å®æ´æ¨¡æ¬æ¸æ",
+                 h4("å®æ´çæ¨¡æ¬æ¸æé"),
                  DT::dataTableOutput("full_data_table")
+        ),
+        # --- NEW: References Tab ---
+        tabPanel("åèæç»",
+                 h4("ä¸»è¦åèæç»"),
+                 tags$ul(
+                   tags$li(
+                     tags$a(href = "https://www.dropbox.com/scl/fi/lsnmm2ge2q1ircugjgqsf/nejm_iv.pdf?rlkey=8xbouk44mnryh2o98fdjbvlfx&raw=1",
+                            target = "_blank", # Open in new tab
+                            "Brookhart MA, Rassen JA, Schneeweiss S. Instrumental Variables in Randomized Trials. N Engl J Med. 2010;363(25):e39.")
+                   ),
+                   tags$li(
+                     tags$a(href = "https://www.nejm.org/doi/full/10.1056/NEJMoa1915922",
+                            target = "_blank", # Open in new tab
+                            "Maron DJ, Hochman JS, Reynolds HR, et al. Initial Invasive or Conservative Strategy for Stable Coronary Disease. N Engl J Med. 2020;382(15):1395-1407. (ISCHEMIA Trial)")
+                   ) 
+                 )
         )
+        # --- End of New Tab ---
       )
     )
   )
 )
 
 
-# --- Server Logic (伺服器邏輯) ---
+# --- Server Logic (ä¼ºæå¨éè¼¯) ---
 server <- function(input, output, session) {
 
   analysis_results <- eventReactive(input$run_analysis, {
 
-    showNotification("正在模擬數據並執行分析...", type = "message", duration = 3)
+    showNotification("æ­£å¨æ¨¡æ¬æ¸æä¸¦å·è¡åæ...", type = "message", duration = 3)
 
     # --- 1. Simulate Data ---
     set.seed(as.integer(Sys.time()))
@@ -181,11 +210,17 @@ server <- function(input, output, session) {
 
     # X: Covariates
     baseline_SAQ <- rnorm(n, mean = 60, sd = 15)
-    region <- factor(sample(1:3, n, replace = TRUE), labels = c("地區A", "地區B", "地區C"))
+    region <- factor(sample(1:3, n, replace = TRUE), labels = c("å°åA", "å°åB", "å°åC"))
 
     # T: Treatment Received (Endogenous)
-    prob_revasc <- ifelse(assignment_Z == 1, prob_revasc_if_Z1, prob_revasc_if_Z0)
-    treatment_revasc_T <- rbinom(n, 1, prob_revasc)
+    # Introduce some correlation between baseline_SAQ and compliance to make OLS biased
+    compliance_propensity <- pnorm(-1.5 + 0.5*assignment_Z + 0.02*(baseline_SAQ - 60)) # Higher SAQ slightly more likely to comply if Z=1
+    prob_revasc_adj <- ifelse(assignment_Z == 1,
+                              pmin(pmax(prob_revasc_if_Z1 + (compliance_propensity - mean(compliance_propensity[assignment_Z==1])), 0.01), 0.99),
+                              pmin(pmax(prob_revasc_if_Z0 + (compliance_propensity - mean(compliance_propensity[assignment_Z==0])), 0.01), 0.99))
+
+    treatment_revasc_T <- rbinom(n, 1, prob_revasc_adj)
+
 
     # Y: Outcome (Final SAQ Score) - Ground Truth (linear baseline effect)
     intercept <- 76
@@ -193,12 +228,15 @@ server <- function(input, output, session) {
     beta_regionB <- 2
     beta_regionC <- -1
     error_sd <- 20
+    # Add confounding: Higher baseline SAQ also independently leads to better outcome
+    confounding_effect <- 0.05 * (baseline_SAQ - 60)
 
     outcome_Y <- intercept +
                  beta_T_true_late * treatment_revasc_T +
-                 beta_baseline * baseline_SAQ + # Linear effect in generation
-                 ifelse(region == "地區B", beta_regionB, 0) +
-                 ifelse(region == "地區C", beta_regionC, 0) +
+                 beta_baseline * baseline_SAQ + # Effect of baseline SAQ
+                 ifelse(region == "å°åB", beta_regionB, 0) +
+                 ifelse(region == "å°åC", beta_regionC, 0) +
+                 # confounding_effect + # Add confounding related to baseline_SAQ
                  rnorm(n, mean = 0, sd = error_sd)
 
     # Create data frame
@@ -212,20 +250,16 @@ server <- function(input, output, session) {
 
     # --- 2. Perform Analyses ---
 
-    # ** CORRECTED Formula Construction **
-    # Define covariate terms strings (without leading ~)
+    # Define covariate terms strings
     formula_linear_cov_terms <- "baseline_SAQ + region"
     formula_rcs_cov_terms <- if (nk >= 3) paste("rcs(baseline_SAQ, nk=", nk, ") + region") else formula_linear_cov_terms
 
-    # Define formulas for each model type (Linear and RCS)
-    # Linear Models
+    # Define formulas (Linear and RCS)
     formula_fs_linear <- as.formula(paste("T ~ Z +", formula_linear_cov_terms))
     formula_rf_linear <- as.formula(paste("Y ~ Z +", formula_linear_cov_terms))
     formula_ols_linear <- as.formula(paste("Y ~ T +", formula_linear_cov_terms))
-    # IV formula: Y ~ endog + exog | instruments + exog
     formula_iv_linear <- as.formula(paste("Y ~ T +", formula_linear_cov_terms, "| Z +", formula_linear_cov_terms))
 
-    # RCS Models (only if nk >= 3)
     formula_fs_rcs <- if (nk >= 3) as.formula(paste("T ~ Z +", formula_rcs_cov_terms)) else NULL
     formula_rf_rcs <- if (nk >= 3) as.formula(paste("Y ~ Z +", formula_rcs_cov_terms)) else NULL
     formula_ols_rcs <- if (nk >= 3) as.formula(paste("Y ~ T +", formula_rcs_cov_terms)) else NULL
@@ -234,7 +268,7 @@ server <- function(input, output, session) {
 
     # --- Run Linear Models ---
     first_stage_linear_model <- lm(formula_fs_linear, data = ischemia_sim)
-    first_stage_linear_summary <- summary(first_stage_linear_model)
+    first_stage_linear_summary <- summary(first_stage_linear_model) # Summary for F-stat later
 
     reduced_form_linear_model <- lm(formula_rf_linear, data = ischemia_sim)
     reduced_form_linear_summary <- summary(reduced_form_linear_model)
@@ -245,51 +279,69 @@ server <- function(input, output, session) {
     iv_linear_model <- tryCatch({
         ivreg(formula_iv_linear, data = ischemia_sim)
       }, error = function(e) { message("IV Linear Model Error: ", e$message); NULL })
-    iv_linear_summary <- if (!is.null(iv_linear_model)) summary(iv_linear_model) else "IV (Linear) 模型估計失敗"
+
+    # **MODIFIED**: Use diagnostics = TRUE in summary() for ivreg object
+    iv_linear_summary <- if (!is.null(iv_linear_model) && inherits(iv_linear_model, "ivreg")) {
+        tryCatch({
+            summary(iv_linear_model, diagnostics = TRUE)
+        }, error = function(e) { message("IV Linear Summary Error: ", e$message); "IV (Linear) æ¨¡åæè¦å¤±æ (å«è¨ºæ·)"})
+    } else {
+        "IV (Linear) æ¨¡åä¼°è¨å¤±æ"
+    }
+
 
     iv_linear_robust_summary <- NULL
-    if (!is.null(iv_linear_model) && inherits(iv_linear_model, "ivreg")) { # Check class
+    if (!is.null(iv_linear_model) && inherits(iv_linear_model, "ivreg")) {
       iv_linear_robust_summary <- tryCatch({
           coeftest(iv_linear_model, vcov. = vcovHC(iv_linear_model, type = "HC1"))
         }, error = function(e) { message("Robust SE (Linear) Error: ", e$message); NULL })
-      if(is.null(iv_linear_robust_summary)) iv_linear_robust_summary <- "無法計算穩健標準誤 (Linear)。"
+      if(is.null(iv_linear_robust_summary)) iv_linear_robust_summary <- "ç¡æ³è¨ç®ç©©å¥æ¨æºèª¤ (Linear)ã"
     } else {
-        iv_linear_robust_summary <- "無法計算穩健標準誤 (Linear)。"
+        iv_linear_robust_summary <- "ç¡æ³è¨ç®ç©©å¥æ¨æºèª¤ (Linear)ã"
     }
 
     # --- Run RCS Models (if nk >= 3) ---
     first_stage_rcs_model <- NULL
-    first_stage_rcs_summary <- "未執行 RCS 模型 (結數 < 3)。"
+    first_stage_rcs_summary <- "æªå·è¡ RCS æ¨¡å (çµæ¸ < 3)ã"
     reduced_form_rcs_model <- NULL
-    reduced_form_rcs_summary <- "未執行 RCS 模型 (結數 < 3)。"
+    reduced_form_rcs_summary <- "æªå·è¡ RCS æ¨¡å (çµæ¸ < 3)ã"
     ols_rcs_model <- NULL
-    ols_rcs_summary <- "未執行 RCS 模型 (結數 < 3)。"
+    ols_rcs_summary <- "æªå·è¡ RCS æ¨¡å (çµæ¸ < 3)ã"
     iv_rcs_model <- NULL
-    iv_rcs_summary <- "未執行 RCS 模型 (結數 < 3)。"
-    iv_rcs_robust_summary <- "未執行 RCS 模型 (結數 < 3)。"
+    iv_rcs_summary <- "æªå·è¡ RCS æ¨¡å (çµæ¸ < 3)ã"
+    iv_rcs_robust_summary <- "æªå·è¡ RCS æ¨¡å (çµæ¸ < 3)ã"
 
-    if (!is.null(formula_fs_rcs)) { # Check if formulas were created
+    if (!is.null(formula_fs_rcs)) {
         first_stage_rcs_model <- tryCatch({ lm(formula_fs_rcs, data = ischemia_sim) }, error = function(e){ message("FS RCS Error: ", e$message); NULL})
-        first_stage_rcs_summary <- if (!is.null(first_stage_rcs_model)) summary(first_stage_rcs_model) else "第一階段 (RCS) 模型估計失敗"
+        first_stage_rcs_summary <- if (!is.null(first_stage_rcs_model)) summary(first_stage_rcs_model) else "ç¬¬ä¸éæ®µ (RCS) æ¨¡åä¼°è¨å¤±æ" # Summary for F-stat later
 
         reduced_form_rcs_model <- tryCatch({ lm(formula_rf_rcs, data = ischemia_sim) }, error = function(e){ message("RF RCS Error: ", e$message); NULL})
-        reduced_form_rcs_summary <- if (!is.null(reduced_form_rcs_model)) summary(reduced_form_rcs_model) else "簡化式 (RCS) 模型估計失敗"
+        reduced_form_rcs_summary <- if (!is.null(reduced_form_rcs_model)) summary(reduced_form_rcs_model) else "ç°¡åå¼ (RCS) æ¨¡åä¼°è¨å¤±æ"
 
         ols_rcs_model <- tryCatch({ lm(formula_ols_rcs, data = ischemia_sim) }, error = function(e){ message("OLS RCS Error: ", e$message); NULL})
-        ols_rcs_summary <- if (!is.null(ols_rcs_model)) summary(ols_rcs_model) else "OLS (RCS) 模型估計失敗"
+        ols_rcs_summary <- if (!is.null(ols_rcs_model)) summary(ols_rcs_model) else "OLS (RCS) æ¨¡åä¼°è¨å¤±æ"
 
         iv_rcs_model <- tryCatch({
             ivreg(formula_iv_rcs, data = ischemia_sim)
         }, error = function(e) { message("IV RCS Model Error: ", e$message); NULL })
-        iv_rcs_summary <- if (!is.null(iv_rcs_model)) summary(iv_rcs_model) else "IV (RCS) 模型估計失敗"
 
-        if (!is.null(iv_rcs_model) && inherits(iv_rcs_model, "ivreg")) { # Check class
+        # **MODIFIED**: Use diagnostics = TRUE in summary() for ivreg object
+        iv_rcs_summary <- if (!is.null(iv_rcs_model) && inherits(iv_rcs_model, "ivreg")) {
+             tryCatch({
+                summary(iv_rcs_model, diagnostics = TRUE)
+             }, error = function(e) { message("IV RCS Summary Error: ", e$message); "IV (RCS) æ¨¡åæè¦å¤±æ (å«è¨ºæ·)"})
+        } else {
+             "IV (RCS) æ¨¡åä¼°è¨å¤±æ"
+        }
+
+
+        if (!is.null(iv_rcs_model) && inherits(iv_rcs_model, "ivreg")) {
           iv_rcs_robust_summary <- tryCatch({
               coeftest(iv_rcs_model, vcov. = vcovHC(iv_rcs_model, type = "HC1"))
             }, error = function(e) { message("Robust SE (RCS) Error: ", e$message); NULL })
-           if(is.null(iv_rcs_robust_summary)) iv_rcs_robust_summary <- "無法計算穩健標準誤 (RCS)。"
+           if(is.null(iv_rcs_robust_summary)) iv_rcs_robust_summary <- "ç¡æ³è¨ç®ç©©å¥æ¨æºèª¤ (RCS)ã"
         } else {
-            iv_rcs_robust_summary <- "無法計算穩健標準誤 (RCS)。"
+            iv_rcs_robust_summary <- "ç¡æ³è¨ç®ç©©å¥æ¨æºèª¤ (RCS)ã"
         }
     }
 
@@ -299,7 +351,7 @@ server <- function(input, output, session) {
         n = n,
         intercept = intercept,
         beta_T_true_late = beta_T_true_late,
-        beta_baseline = beta_baseline, # True effect is linear
+        beta_baseline = beta_baseline,
         beta_regionB = beta_regionB,
         beta_regionC = beta_regionC,
         error_sd = error_sd,
@@ -311,41 +363,39 @@ server <- function(input, output, session) {
     list(
       data_full = ischemia_sim,
       # Linear models
-      first_stage_linear_model = first_stage_linear_model,
-      first_stage_linear_summary = first_stage_linear_summary,
+      first_stage_linear_model = first_stage_linear_model, # Pass model object
+      first_stage_linear_summary = first_stage_linear_summary, # Pass summary object
       reduced_form_linear_model = reduced_form_linear_model,
       reduced_form_linear_summary = reduced_form_linear_summary,
       ols_linear_model = ols_linear_model,
       ols_linear_summary = ols_linear_summary,
-      iv_linear_model = iv_linear_model,
-      iv_linear_summary = iv_linear_summary,
+      iv_linear_model = iv_linear_model, # Pass model object
+      iv_linear_summary = iv_linear_summary, # Pass summary object (now includes diagnostics)
       iv_linear_robust_summary = iv_linear_robust_summary,
       # RCS models
-      first_stage_rcs_model = first_stage_rcs_model, # Pass model for potential diagnostics
+      first_stage_rcs_model = first_stage_rcs_model,
       first_stage_rcs_summary = first_stage_rcs_summary,
       reduced_form_rcs_model = reduced_form_rcs_model,
       reduced_form_rcs_summary = reduced_form_rcs_summary,
       ols_rcs_model = ols_rcs_model,
       ols_rcs_summary = ols_rcs_summary,
       iv_rcs_model = iv_rcs_model,
-      iv_rcs_summary = iv_rcs_summary,
+      iv_rcs_summary = iv_rcs_summary, # Pass summary object (now includes diagnostics)
       iv_rcs_robust_summary = iv_rcs_robust_summary,
       # Params
       ground_truth_params = ground_truth_params,
-      nk = nk # Pass nk to UI
+      nk = nk
     )
   }, ignoreNULL = FALSE)
 
   # --- 3. Render Outputs ---
 
-  # Render data table preview
   output$data_head <- renderTable({
     results <- analysis_results()
     req(results$data_full)
     head(results$data_full)
   }, rownames = TRUE)
 
-  # Render the FULL data table using DT
   output$full_data_table <- DT::renderDataTable({
     results <- analysis_results()
     req(results$data_full)
@@ -355,122 +405,129 @@ server <- function(input, output, session) {
                   filter = 'top')
   })
 
-  # --- Render Model Summaries (Linear and RCS) ---
-
-  # Helper function to print summary and F-stat (if applicable)
-  print_summary_and_fstat <- function(summary_obj, model_type = "Linear") {
+  # Helper function to print summary and F-stat for FIRST STAGE (summary.lm)
+  print_first_stage_summary <- function(summary_obj, model_type = "Linear") {
       if (is.character(summary_obj)) { # Handle error messages
-          cat(paste(model_type, ":", summary_obj, "\n"))
+          cat(paste("ç¬¬ä¸éæ®µ (", model_type, "): ", summary_obj, "\n", sep=""))
           return()
       }
       # Check if summary object is valid before printing
-      req(summary_obj, inherits(summary_obj, c("summary.lm", "summary.ivreg")))
+      req(summary_obj, inherits(summary_obj, "summary.lm"))
+      cat(paste("--- ç¬¬ä¸éæ®µæ¨¡å (", model_type, ") ---\n", sep=""))
       print(summary_obj)
 
-      # Extract and display F-statistic for first stage models (summary.lm only)
-      if (inherits(summary_obj, "summary.lm") && !is.null(summary_obj$fstatistic)) {
-          f_stat <- summary_obj$fstatistic
-          # Check if f_stat has the expected structure
-          if (!is.null(f_stat) && length(f_stat) >= 1 && is.numeric(f_stat[1])) {
-             f_value <- f_stat[1]
-             cat("\n---\n")
-             cat(paste("第一階段 F 統計量 (檢定工具 Z 的聯合顯著性):", round(f_value, 2), "\n"))
-             if (f_value < 10) {
-                 cat("警告：第一階段 F 統計量 < 10。可能存在弱工具變數問題。\n")
-             } else {
-                 cat("第一階段 F 統計量 >= 10，工具變數強度尚可接受。\n")
-             }
+      # Extract and display F-statistic for the instrument Z
+      # We need the F-stat for the exclusion of the instrument(s)
+      # For a single instrument Z, this is equivalent to the square of the t-statistic for Z
+      if ("Z" %in% rownames(summary_obj$coefficients)) {
+          t_stat_Z <- summary_obj$coefficients["Z", "t value"]
+          f_stat_Z <- t_stat_Z^2
+          cat("\n---\n")
+          cat(paste("å·¥å·è®æ¸ Z ç F çµ±è¨é (è¿ä¼¼å¼ t^2):", round(f_stat_Z, 2), "\n"))
+          if (f_stat_Z < 10) {
+              cat("è­¦åï¼ç¬¬ä¸éæ®µ F çµ±è¨é < 10ãå¯è½å­å¨å¼±å·¥å·è®æ¸åé¡ã\n")
           } else {
-             cat("\n---\n無法提取 F 統計量值。\n")
+              cat("ç¬¬ä¸éæ®µ F çµ±è¨é >= 10ï¼å·¥å·è®æ¸å¼·åº¦å°å¯æ¥åã\n")
           }
+      } else {
+          cat("\n---\nç¡æ³æåå·¥å·è®æ¸ Z ç F çµ±è¨éã\n")
       }
   }
 
-  # First Stage
+  # First Stage Output
   output$first_stage_summary_linear <- renderPrint({
       results <- analysis_results()
       req(results$first_stage_linear_summary)
-      print_summary_and_fstat(results$first_stage_linear_summary, "Linear")
+      print_first_stage_summary(results$first_stage_linear_summary, "Linear")
   })
   output$first_stage_summary_rcs <- renderPrint({
       results <- analysis_results()
       req(results$first_stage_rcs_summary)
-      print_summary_and_fstat(results$first_stage_rcs_summary, "RCS")
+      print_first_stage_summary(results$first_stage_rcs_summary, "RCS")
   })
 
-  # Reduced Form
+  # Reduced Form Output
   output$reduced_form_summary_linear <- renderPrint({
       results <- analysis_results()
       req(results$reduced_form_linear_summary)
+      cat("--- ç°¡åå¼æ¨¡å (Linear) ---\n")
       if(is.character(results$reduced_form_linear_summary)) {cat(results$reduced_form_linear_summary)} else {print(results$reduced_form_linear_summary)}
   })
   output$reduced_form_summary_rcs <- renderPrint({
       results <- analysis_results()
       req(results$reduced_form_rcs_summary)
+      cat("--- ç°¡åå¼æ¨¡å (RCS) ---\n")
       if(is.character(results$reduced_form_rcs_summary)) {cat(results$reduced_form_rcs_summary)} else {print(results$reduced_form_rcs_summary)}
   })
 
-  # IV / 2SLS
+  # IV / 2SLS Output (Now includes diagnostics)
   output$iv_summary_linear <- renderPrint({
     results <- analysis_results()
     req(results$iv_linear_summary)
+    cat("--- IV/2SLS æ¨¡å (Linear, å«è¨ºæ·) ---\n")
+    # The summary object itself now contains diagnostics when printed
     if (is.character(results$iv_linear_summary)) { cat(results$iv_linear_summary) } else { print(results$iv_linear_summary) }
   })
   output$iv_summary_rcs <- renderPrint({
     results <- analysis_results()
     req(results$iv_rcs_summary)
+    cat("--- IV/2SLS æ¨¡å (RCS, å«è¨ºæ·) ---\n")
      if (is.character(results$iv_rcs_summary)) { cat(results$iv_rcs_summary) } else { print(results$iv_rcs_summary) }
   })
 
-  # IV / 2SLS Robust
+  # IV / 2SLS Robust Output (No diagnostics here)
   output$iv_robust_summary_linear <- renderPrint({
      results <- analysis_results()
      req(results$iv_linear_robust_summary)
+     cat("--- IV/2SLS æ¨¡å (Linear, ç©©å¥ SE) ---\n")
      if (is.character(results$iv_linear_robust_summary)) { cat(results$iv_linear_robust_summary) } else { print(results$iv_linear_robust_summary) }
   })
    output$iv_robust_summary_rcs <- renderPrint({
      results <- analysis_results()
      req(results$iv_rcs_robust_summary)
+     cat("--- IV/2SLS æ¨¡å (RCS, ç©©å¥ SE) ---\n")
      if (is.character(results$iv_rcs_robust_summary)) { cat(results$iv_rcs_robust_summary) } else { print(results$iv_rcs_robust_summary) }
   })
 
-  # OLS
+  # OLS Output
   output$ols_summary_linear <- renderPrint({
      results <- analysis_results()
      req(results$ols_linear_summary)
+     cat("--- OLS æ¨¡å (Linear) ---\n")
      if(is.character(results$ols_linear_summary)) {cat(results$ols_linear_summary)} else {print(results$ols_linear_summary)}
   })
   output$ols_summary_rcs <- renderPrint({
      results <- analysis_results()
      req(results$ols_rcs_summary)
+     cat("--- OLS æ¨¡å (RCS) ---\n")
      if(is.character(results$ols_rcs_summary)) {cat(results$ols_rcs_summary)} else {print(results$ols_rcs_summary)}
   })
 
   # --- Render Formulas ---
-  # (Formula displays remain general)
   output$ground_truth_formula_display <- renderUI({
       withMathJax(helpText(
-        "$$ Y = \\beta_0 + \\beta_{T, LATE} T + \\beta_{baseline} \\text{baseline\\_SAQ} + ... + \\epsilon $$"
+        "$$ Y_i = \\beta_0 + \\beta_{T, LATE} T_i + \\mathbf{X}_i'\\boldsymbol{\\beta}_X + \\epsilon_i $$"
       ))
   })
   output$formula_first_stage <- renderUI({
       withMathJax(helpText(
-        "$$ T = \\gamma_0 + \\gamma_Z Z + f(\\text{Covariates}) + \\nu $$"
+        "$$ T_i = \\gamma_0 + \\gamma_Z Z_i + \\mathbf{X}_i'\\boldsymbol{\\gamma}_X + \\nu_i $$"
       ))
   })
   output$formula_reduced_form <- renderUI({
       withMathJax(helpText(
-        "$$ Y = \\pi_0 + \\pi_Z Z + f(\\text{Covariates}) + \\omega $$"
+        "$$ Y_i = \\pi_0 + \\pi_Z Z_i + \\mathbf{X}_i'\\boldsymbol{\\pi}_X + \\omega_i $$"
       ))
   })
   output$formula_2sls <- renderUI({
+      # Representing the two stages implicitly
       withMathJax(helpText(
-        "$$ Y = \\beta_0 + \\beta_{T, 2SLS} \\hat{T} + f(\\text{Covariates}) + \\epsilon $$"
+        "$$ Y_i = \\beta_0 + \\beta_{T, 2SLS} \\hat{T}_i + \\mathbf{X}_i'\\boldsymbol{\\beta}_X + e_i \\quad \\text{where } \\hat{T}_i \\text{ is predicted from the first stage.} $$"
       ))
   })
   output$formula_ols <- renderUI({
       withMathJax(helpText(
-        "$$ Y = \\delta_0 + \\delta_T T + f(\\text{Covariates}) + \\mu $$"
+        "$$ Y_i = \\delta_0 + \\delta_T T_i + \\mathbf{X}_i'\\boldsymbol{\\delta}_X + \\mu_i $$"
       ))
   })
 
@@ -480,62 +537,63 @@ server <- function(input, output, session) {
       req(results$ground_truth_params)
       params <- results$ground_truth_params
       prop_compliers = params$prob_revasc_if_Z1 - params$prob_revasc_if_Z0
-      cat(paste("樣本數 (n):", params$n, "\n"))
-      cat(paste("真實 LATE/CACE (β_T):", params$beta_T_true_late, "\n"))
-      cat(paste("真實基線 SAQ 效應 (β_baseline, 線性):", params$beta_baseline, "\n"))
-      cat(paste("地區 B 效應 (β_regionB):", params$beta_regionB, "\n"))
-      cat(paste("地區 C 效應 (β_regionC):", params$beta_regionC, "\n"))
-      cat(paste("誤差標準差 (σ_ε):", params$error_sd, "\n"))
-      cat(paste("P(T=1 | Z=1):", params$prob_revasc_if_Z1, "\n"))
-      cat(paste("P(T=1 | Z=0):", params$prob_revasc_if_Z0, "\n"))
-      cat(paste("遵從者比例估計:", round(prop_compliers, 3), "\n"))
+      cat(paste("æ¨£æ¬æ¸ (n):", params$n, "\n"))
+      cat(paste("çå¯¦ LATE/CACE (Î²_T):", params$beta_T_true_late, "\n"))
+      cat(paste("çå¯¦åºç· SAQ ææ (Î²_baseline, ç·æ§):", params$beta_baseline, "\n"))
+      cat(paste("å°å B ææ (Î²_regionB):", params$beta_regionB, "\n"))
+      cat(paste("å°å C ææ (Î²_regionC):", params$beta_regionC, "\n"))
+      cat(paste("èª¤å·®æ¨æºå·® (Ï_Îµ):", params$error_sd, "\n"))
+      cat(paste("P(T=1 | Z=1) (å¹³å):", params$prob_revasc_if_Z1, "\n")) # Note: This is the input slider value, actual average might differ slightly due to adjustment
+      cat(paste("P(T=1 | Z=0) (å¹³å):", params$prob_revasc_if_Z0, "\n")) # Note: This is the input slider value, actual average might differ slightly due to adjustment
+      cat(paste("éµå¾èæ¯ä¾ä¼°è¨ (åºæ¼è¼¸å¥):", round(prop_compliers, 3), "\n"))
   })
 
   # Comparison uses linear models
   output$comparison_estimates <- renderUI({
       results <- analysis_results()
-      # Ensure linear models are available and are model objects
+      # Ensure linear models ran and coefficients can be extracted
       req(results$reduced_form_linear_model, inherits(results$reduced_form_linear_model, "lm"),
           results$iv_linear_model, inherits(results$iv_linear_model, "ivreg"),
           results$ols_linear_model, inherits(results$ols_linear_model, "lm"),
           results$ground_truth_params)
 
-      # Extract coefficients from LINEAR models safely
-      itt_coef <- tryCatch(coef(results$reduced_form_linear_model)["Z"], error = function(e) NA)
-      iv_coef <- tryCatch(coef(results$iv_linear_model)["T"], error = function(e) NA)
-      ols_coef <- tryCatch(coef(results$ols_linear_model)["T"], error = function(e) NA)
+      # Safely extract coefficients
+      itt_coef <- tryCatch(coef(results$reduced_form_linear_model)["Z"], error = function(e) NA_real_)
+      iv_coef <- tryCatch(coef(results$iv_linear_model)["T"], error = function(e) NA_real_)
+      ols_coef <- tryCatch(coef(results$ols_linear_model)["T"], error = function(e) NA_real_)
       true_late <- results$ground_truth_params$beta_T_true_late
 
-      if (is.na(itt_coef) || is.na(iv_coef) || is.na(ols_coef)) {
-          return(p("無法提取所有線性模型係數進行比較。"))
+      # Check if extraction failed
+      if (anyNA(c(itt_coef, iv_coef, ols_coef))) {
+          return(p("é¯èª¤ï¼ç¡æ³å¾ä¸åæå¤åç·æ§æ¨¡åä¸­æåä¿æ¸é²è¡æ¯è¼ãè«æª¢æ¥æ¨¡åçµæã"))
       }
 
       # Create comparison text
       tagList(
-          p(paste0("在此模擬中，真實的遵從者平均因果效應 (LATE/CACE) 設定為: ", round(true_late, 3))),
+          p(paste0("å¨æ­¤æ¨¡æ¬ä¸­ï¼çå¯¦çéµå¾èå¹³åå æææ (LATE/CACE) è¨­å®çº: ", round(true_late, 3))),
           hr(),
-          h5("不同分析方法的估計值 (基於線性 SAQ 模型)："),
+          h5("ä¸ååææ¹æ³çä¼°è¨å¼ (åºæ¼ç·æ§ SAQ æ¨¡å)ï¼"),
           tags$ul(
-              tags$li(paste0("ITT (意向治療) 效應: ", round(itt_coef, 3), ". 隨機『分派』對結果 Y 的平均影響。")),
-              tags$li(paste0("OLS (依治療分析) 關聯性: ", round(ols_coef, 3), ". 比較實際『接受』治療者的結果差異，可能有偏誤。")),
-              tags$li(paste0("2SLS (工具變數) 效應 (LATE/CACE): ", round(iv_coef, 3), ". 利用隨機分派 Z 估計實際『接受』治療 T 對『遵從者』的因果效應。"))
+              tags$li(paste0("ITT (æåæ²»ç) ææ (Z å° Y): ", round(itt_coef, 3), ". é¨æ©ãåæ´¾ãå°çµæ Y çå¹³åå½±é¿ã")),
+              tags$li(paste0("OLS (ä¾æ²»çåæ) éè¯æ§ (T å° Y): ", round(ols_coef, 3), ". æ¯è¼å¯¦éãæ¥åãæ²»çèççµæå·®ç°ï¼å¯è½æåèª¤ã")),
+              tags$li(paste0("2SLS (å·¥å·è®æ¸) ææ (T å° Y ç LATE/CACE): ", round(iv_coef, 3), ". å©ç¨é¨æ©åæ´¾ Z ä¼°è¨å¯¦éãæ¥åãæ²»ç T å°ãéµå¾èãçå æææã"))
           ),
           hr(),
-          h5("比較與解釋："),
+          h5("æ¯è¼èè§£éï¼"),
           tags$ul(
-              tags$li(paste0("2SLS 估計值 (", round(iv_coef, 3), ") 通常最接近真實 LATE (", round(true_late, 3), ")，因其校正選擇偏誤。")),
-              tags$li(paste0("OLS 估計值 (", round(ols_coef, 3), ") 與真實 LATE 的差異反映了『遵從行為』與結果之間的混淆。")),
-              tags$li(paste0("ITT 估計值 (", round(itt_coef, 3), ") 代表治療『策略』的平均效果，受遵從者比例影響 (ITT ≈ LATE × 遵從者比例)。"))
+              tags$li(paste0("2SLS ä¼°è¨å¼ (", round(iv_coef, 3), ") éå¸¸ææ¥è¿çå¯¦ LATE (", round(true_late, 3), ")ï¼å å¶è©¦åæ ¡æ­£ç± T çå§çæ§ï¼é¸æåèª¤ï¼å¼èµ·çåèª¤ã")),
+              tags$li(paste0("OLS ä¼°è¨å¼ (", round(ols_coef, 3), ") èçå¯¦ LATE çå·®ç°åæ äºãéµå¾è¡çºãèçµæä¹éçæ··æ·ãå¨æ­¤æ¨¡æ¬ä¸­ï¼åºç· SAQ å¯è½åæå½±é¿æ²»çé¸æåçµæï¼å°è´ OLS åèª¤ã")),
+              tags$li(paste0("ITT ä¼°è¨å¼ (", round(itt_coef, 3), ") ä»£è¡¨æ²»çãç­ç¥ãçå¹³åææï¼å¶å¤§å°åéµå¾èæ¯ä¾å½±é¿ãçè«ä¸ï¼ITT â LATE Ã (P(T=1|Z=1) - P(T=1|Z=0))ã"))
           ),
           hr(),
-          p("注意：以上比較基於假設基線 SAQ 效應為線性的模型。您可以查看其他標籤頁中包含 RCS 的模型結果，以評估非線性假設是否影響估計。")
+          p("æ³¨æï¼ä»¥ä¸æ¯è¼åºæ¼åè¨­åºç· SAQ ææçºç·æ§çæ¨¡åãæ¨å¯ä»¥æ¥çåå« RCS çæ¨¡åçµæï¼ä»¥è©ä¼°éç·æ§åè¨­æ¯å¦å½±é¿ä¼°è¨ãåæï¼è«æª¢æ¥ IV æ¨¡åçè¨ºæ·æª¢å® (å¦å¼±å·¥å·è®æ¸æª¢å®)ã")
       )
   })
 
   # --- Download Handler ---
   output$download_data <- downloadHandler(
     filename = function() {
-      results <- analysis_results() # Need results to get nk
+      results <- analysis_results()
       req(results$nk)
       paste0("simulated_ischemia_data_", Sys.Date(), "_nk", results$nk, ".csv")
     },
@@ -544,6 +602,7 @@ server <- function(input, output, session) {
       if (!is.null(results$data_full)) {
         write.csv(results$data_full, file, row.names = FALSE, fileEncoding = "UTF-8")
       } else {
+        # Provide a minimal CSV if data generation failed
         write.csv(data.frame(Error = "No simulation data generated yet."), file, row.names = FALSE)
       }
     }
