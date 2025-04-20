@@ -488,5 +488,4 @@ server <- function(input, output, session) {
 
 # --- Run the application ---
 # Keep this line commented out when providing the code block.
-# shinyApp(ui = ui, server = server)
-
+shinyApp(ui = ui, server = server)
