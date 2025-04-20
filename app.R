@@ -160,7 +160,7 @@ ui <- fluidPage(
                  verbatimTextOutput("ols_summary_linear"),
                  h5("RCS 基線 SAQ 模型結果:"),
                  verbatimTextOutput("ols_summary_rcs"),
-                 h5("OLS 中 Baseline SAQ 非線性檢定 (ANOVA: 線性 vs. RCS)"), # New Title for ANOVA test
+                 h5("OLS 中 Baseline SAQ 非線性檢定 (ANOVA: 線性 vs RCS): 即使 p >0.05, 也要保留 RCS"), # New Title for ANOVA test
                  verbatimTextOutput("ols_nonlinearity_test_output"),          # New Output for ANOVA test
                  hr(),
                  h4("模型估計值比較 (基於線性 SAQ 模型)"),
