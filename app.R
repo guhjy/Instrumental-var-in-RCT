@@ -91,8 +91,8 @@ ui <- fluidPage(
                  hr(),
                  h4("主要分析方法與公式："),
                  tags$ol(
-                   tags$li("第一階段 (First Stage): T ~ Z + Covariates", uiOutput("formula_first_stage")),
-                   tags$li("簡化式 (Reduced Form) / ITT: Y ~ Z + Covariates", uiOutput("formula_reduced_form")),
+                   tags$li("第一階段: T ~ Z + Covariates", uiOutput("formula_first_stage")),
+                   tags$li("簡化式/ ITT: Y ~ Z + Covariates, ITT ≈ LATE × (P(T=1|Z=1) - P(T=1|Z=0))", uiOutput("formula_reduced_form")),
                    tags$li("兩階段最小平方法 (2SLS / IV): Y ~ T + Covariates | Z + Covariates", uiOutput("formula_2sls")),
                    tags$li("普通最小平方法 (OLS) / As-Treated: Y ~ T + Covariates", uiOutput("formula_ols"))
                  )
